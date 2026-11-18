@@ -1,86 +1,164 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>QR Attendance Scanner</title>
+<title>QR Event Attendance Scanner</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
-*{box-sizing:border-box}body{margin:0;padding:18px;font-family:Arial,sans-serif;background:#f4f6f8;color:#18212f}
+*{box-sizing:border-box}
+body{margin:0;padding:18px;font-family:Arial,sans-serif;background:#f4f6f8;color:#18212f}
 .card{max-width:520px;margin:20px auto;background:#fff;border-radius:16px;padding:20px;box-shadow:0 3px 18px #0001}
-h1{font-size:22px;margin:0 0 8px}.muted,.hint{color:#657080;font-size:14px;line-height:1.5}
+h1{font-size:22px;margin:0 0 8px}
+.muted,.hint{color:#657080;font-size:14px;line-height:1.5}
 label{display:block;margin:18px 0 7px;font-weight:bold;font-size:14px}
 input{width:100%;padding:14px;border:1px solid #cbd2da;border-radius:10px;font-size:18px}
 button{width:100%;padding:14px;margin-top:12px;border:0;border-radius:10px;background:#1459c7;color:white;font-size:16px;font-weight:bold}
-button.secondary{background:#e8edf4;color:#18212f}.hidden{display:none!important}
+button.secondary{background:#e8edf4;color:#18212f}
+button:disabled{opacity:.6}
+.hidden{display:none!important}
 #reader{width:100%;margin-top:18px;overflow:hidden;border-radius:12px}
 #status{display:none;margin-top:16px;padding:14px;border-radius:10px;line-height:1.45}
-#status.success{display:block;background:#e8f7ed;color:#146c35}#status.duplicate{display:block;background:#fff5dc;color:#805500}#status.error{display:block;background:#fdecec;color:#9c2424}
-.name{font-weight:bold;font-size:18px}.small{font-size:13px;margin-top:5px}.hint{margin-top:14px;font-size:12px}
+#status.success{display:block;background:#e8f7ed;color:#146c35}
+#status.duplicate{display:block;background:#fff5dc;color:#805500}
+#status.error{display:block;background:#fdecec;color:#9c2424}
+.name{font-weight:bold;font-size:18px}
+.small{font-size:13px;margin-top:5px;overflow-wrap:anywhere}
+.hint{margin-top:14px;font-size:12px}
 </style>
 </head>
 <body>
 <div class="card">
-<h1>QR Attendance Scanner</h1>
-<div class="muted">Public scanner · Admin PIN required to record attendance.</div>
-<label for="pin">Admin PIN</label>
-<input id="pin" type="password" autocomplete="off" placeholder="Enter admin PIN">
-<button id="start" onclick="startScanner()">Enable Camera & Start Scanning</button>
-<button id="stop" class="secondary hidden" onclick="stopScanner()">Stop Camera</button>
-<div id="reader"></div><div id="status" role="status" aria-live="polite"></div>
-<div class="hint">Allow camera access when Chrome asks. Use the rear camera and keep this page open while scanning.</div>
+  <h1>QR Event Attendance Scanner</h1>
+  <div class="muted">Public scanner · Admin PIN required to record attendance.</div>
+  <label for="pin">Admin PIN</label>
+  <input id="pin" type="password" autocomplete="off" placeholder="Enter admin PIN">
+  <button id="start" onclick="startScanner()">Enable Camera & Start Scanning</button>
+  <button id="stop" class="secondary hidden" onclick="stopScanner()">Stop Camera</button>
+  <div id="reader"></div>
+  <div id="status" role="status" aria-live="polite"></div>
+  <div class="hint">Allow camera access when Chrome asks. Use the rear camera and keep this page open while scanning.</div>
 </div>
 <script>
 const API_URL = "https://qr-attendance-api.dharavsharma231.workers.dev";
-let scanner=null, running=false, busy=false;
-function status(type,title,detail){
- const b=document.getElementById('status');b.className=type;
- b.innerHTML='<div class="name"></div><div class="small"></div>';
- b.querySelector('.name').textContent=title||'';
- b.querySelector('.small').textContent=detail||'';
+let scanner = null;
+let running = false;
+let busy = false;
+
+function status(type, title, detail) {
+  const box = document.getElementById('status');
+  box.className = type;
+  box.innerHTML = '<div class="name"></div><div class="small"></div>';
+  box.querySelector('.name').textContent = title || '';
+  box.querySelector('.small').textContent = detail || '';
 }
-async function startScanner(){
- const pin=document.getElementById('pin').value.trim();
- if(pin.length<10){status('error','Admin PIN required','Enter the PIN set by the spreadsheet administrator.');return;}
- if(!navigator.mediaDevices?.getUserMedia){status('error','Camera unavailable','Open this page directly in Chrome over HTTPS.');return;}
- if(typeof Html5Qrcode==='undefined'){status('error','Scanner library unavailable','Check your internet connection and reload.');return;}
- const btn=document.getElementById('start');btn.disabled=true;btn.textContent='Requesting camera permission...';
- try{
-  const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
-  const tracks=stream.getVideoTracks();
-  const devices=await navigator.mediaDevices.enumerateDevices();
-  const cams=devices.filter(d=>d.kind==='videoinput');
-  const preferred=cams.find(c=>/back|rear|environment/i.test(c.label))||cams[cams.length-1];
-  tracks.forEach(t=>t.stop());
-  if(!preferred)throw new Error('No camera device found.');
-  if(!scanner)scanner=new Html5Qrcode('reader');
-  await scanner.start(preferred.deviceId,{fps:10,qrbox:{width:240,height:240}},onScan,()=>{});
-  running=true;btn.classList.add('hidden');document.getElementById('stop').classList.remove('hidden');
-  status('success','Camera ready','Point the camera at an employee QR code.');
- }catch(e){
-  btn.disabled=false;btn.textContent='Retry Camera';
-  let msg=e.message||String(e);
-  if(e.name==='NotAllowedError'||e.name==='PermissionDeniedError')msg='Camera access is blocked. Allow camera access for this site in Chrome settings, then retry.';
-  if(e.name==='NotReadableError')msg='Camera is busy. Close other camera apps and retry.';
-  status('error','Could not start camera',msg);
- }
+
+async function startScanner() {
+  const pin = document.getElementById('pin').value.trim();
+  if (pin.length < 10) {
+    status('error', 'Admin PIN required', 'Enter the PIN set by the spreadsheet administrator.');
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    status('error', 'Camera unavailable', 'Open this page directly in Chrome over HTTPS.');
+    return;
+  }
+  if (typeof Html5Qrcode === 'undefined') {
+    status('error', 'Scanner library unavailable', 'Check your internet connection and reload.');
+    return;
+  }
+  const btn = document.getElementById('start');
+  btn.disabled = true;
+  btn.textContent = 'Requesting camera permission...';
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {facingMode: {ideal: 'environment'}}, audio: false
+    });
+    const tracks = stream.getVideoTracks();
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cameras = devices.filter(d => d.kind === 'videoinput');
+    const preferred =
+      cameras.find(c => /back|rear|environment/i.test(c.label)) ||
+      cameras[cameras.length - 1];
+    tracks.forEach(t => t.stop());
+    if (!preferred) throw new Error('No camera device found.');
+    if (!scanner) scanner = new Html5Qrcode('reader');
+    await scanner.start(
+      preferred.deviceId,
+      {fps: 10, qrbox: {width: 240, height: 240}},
+      onScan,
+      () => {}
+    );
+    running = true;
+    btn.classList.add('hidden');
+    document.getElementById('stop').classList.remove('hidden');
+    status('success', 'Camera ready', 'Point the camera at a participant QR code.');
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Retry Camera';
+    let msg = e.message || String(e);
+    if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
+      msg = 'Camera access is blocked. Allow camera access for this site in Chrome settings, then retry.';
+    }
+    if (e.name === 'NotReadableError') {
+      msg = 'Camera is busy. Close other camera apps and retry.';
+    }
+    status('error', 'Could not start camera', msg);
+  }
 }
-async function onScan(decoded){
- if(busy)return;busy=true;scanner.pause(true);
- try{
-  if(!API_URL.startsWith('https://'))throw new Error('Scanner API is not configured.');
-  const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'recordAttendance',qrToken:decoded,adminPin:document.getElementById('pin').value.trim()})});
-  const result=await response.json();
-  if(result.status==='success')status('success',result.message,`${result.name} · ${result.region||''} · ${result.college||''} · ${result.time}`);
-  else if(result.status==='duplicate')status('duplicate',result.message,`${result.name} · ${result.time||''}`);
-  else status('error',result.message||'Unable to record attendance','');
- }catch(e){status('error','Could not record attendance',e.message||String(e));}
- finally{busy=false;setTimeout(()=>{if(running)try{scanner.resume();}catch(e){}},1600);}
+
+async function onScan(decoded) {
+  if (busy) return;
+  busy = true;
+  scanner.pause(true);
+  try {
+    if (!API_URL.startsWith('https://')) throw new Error('Scanner API is not configured.');
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        action: 'recordAttendance',
+        qrToken: decoded,
+        adminPin: document.getElementById('pin').value.trim()
+      })
+    });
+    const result = await response.json();
+    if (result.status === 'success') {
+      status('success', 'Attendance marked successfully',
+        `${result.name} · ${result.eventName} · ${result.region || ''} · ${result.college || ''} · ${result.time}`);
+    } else if (result.status === 'duplicate') {
+      status('duplicate', 'Already checked in for this event',
+        `${result.name} · ${result.eventName} · ${result.time || ''}`);
+    } else {
+      status('error', result.message || 'Unable to record attendance', '');
+    }
+  } catch (e) {
+    status('error', 'Could not record attendance', e.message || String(e));
+  } finally {
+    busy = false;
+    setTimeout(() => {
+      if (running) {
+        try { scanner.resume(); } catch (e) {}
+      }
+    }, 1600);
+  }
 }
-async function stopScanner(){
- if(!scanner||!running)return;
- try{await scanner.stop();running=false;document.getElementById('stop').classList.add('hidden');const b=document.getElementById('start');b.classList.remove('hidden');b.disabled=false;b.textContent='Start Camera Again';status('success','Camera stopped','Tap Start Camera Again to resume.');}
- catch(e){status('error','Could not stop camera',e.message||String(e));}
+
+async function stopScanner() {
+  if (!scanner || !running) return;
+  try {
+    await scanner.stop();
+    running = false;
+    document.getElementById('stop').classList.add('hidden');
+    const btn = document.getElementById('start');
+    btn.classList.remove('hidden');
+    btn.disabled = false;
+    btn.textContent = 'Start Camera Again';
+    status('success', 'Camera stopped', 'Tap Start Camera Again to resume.');
+  } catch (e) {
+    status('error', 'Could not stop camera', e.message || String(e));
+  }
 }
 </script>
 </body>
